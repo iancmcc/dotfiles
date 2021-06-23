@@ -1,0 +1,5 @@
+--sort-files
+
+--ignore-dir=.idea/
+--ignore-dir=Godeps/
+--ignore-file=is:zenoss-compiled.js

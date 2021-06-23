@@ -1,0 +1,112 @@
+# `v` with no arguments opens the current directory in Vim, otherwise opens the
+# given location
+v() {
+    if [ $# -eq 0 ]; then
+        vim .
+    else
+        vim "$@"
+    fi
+}
+
+# `tre` is a shorthand for `tree` with hidden files and color enabled, ignoring
+# the `.git` directory, listing directories first. The output gets piped into
+# `less` with options to preserve color and line numbers, unless the output is # small enough for one screen.
+tre() {
+    tree -aC -I '.git' --dirsfirst "$@" | less -FRNX
+}
+
+VGNAME=devian
+
+kill_serviced() {
+    sudo pkill -9 serviced || echo "serviced is shut down"
+    [ -n "${CONTAINERS=$(docker ps -q)}" ] && docker kill ${CONTAINERS}
+}
+
+reset_thin_pool() {
+	for DEVICE in $(lsblk -ln -o NAME /dev/mapper/${VGNAME}-serviced | tail -n+2); do
+		sudo umount -A /dev/mapper/${DEVICE}
+		sudo dmsetup remove /dev/mapper/${DEVICE}
+	done
+    sudo lvremove -f ${VGNAME}/serviced
+    sudo lvcreate -L25G -T ${VGNAME}/serviced /dev/sdb1
+}
+
+cleanup() {
+	kill_serviced
+	reset_thin_pool
+}
+
+klogs () {
+    while true; do
+        POD=$(kubectl get pods \
+                --namespace=development \
+                --selector=app=$1 \
+                -o json \
+                | jq -r '.items[0].metadata.name')
+        kubectl --namespace=development logs -f $POD
+        sleep 3
+    done
+}
+
+atwork () {
+    xrandr --output HDMI-1 --off --output DP-1 --auto --above eDP-1
+}
+
+athome () {
+    xrandr --output HDMI-1 --auto --above eDP-1 --output DP-1 --off
+}
+
+nomonitor () {
+    xrandr --output DP-1 --off --output HDMI-1 --off
+}
+
+
+emulators() {
+    export BIGTABLE_EMULATOR_HOST="$(docker ps --filter ancestor=zenoss/gcloud-emulator:bigtable --format '{{.Ports}}' | cut -d- -f1)"
+    export PUBSUB_EMULATOR_HOST="$(docker ps --filter ancestor=zenoss/gcloud-emulator:pubsub --format '{{.Ports}}' | cut -d- -f1)"
+}
+
+noemulators() {
+    unset BIGTABLE_EMULATOR_HOST
+    unset PUBSUB_EMULATOR_HOST
+}
+
+predssh () {
+    ssh -i ~/.ssh/pushnami.pem ec2-user@${@}
+}
+
+devenv () {
+    sudo ntpdate pool.ntp.org
+    cd ~/src/bitbucket.org/modernbusinesssolutions/pushnami-docker-dev/registry
+    dc up -d
+    cd ~/src/bitbucket.org/modernbusinesssolutions/pushnami-docker-dev/demos
+    dc up -d
+    cd ~/src/bitbucket.org/modernbusinesssolutions/pushnami-docker-dev/infrastructure
+    dc up -d
+    sleep 60
+    cd ~/src/bitbucket.org/modernbusinesssolutions/pushnami-docker-dev/services
+    dc up -d
+}
+
+
+resqs () {
+    cur=$PWD
+    cd ~/src/bitbucket.org/modernbusinesssolutions/pushnami-docker-dev/services
+    dc stop workers executor senders
+    cd ../infrastructure
+    dc rm -fs localstack
+    sudo rm -rf var/localstack
+    dc up -d localstack
+    sleep 120 
+    cd ../services
+    dc up -d executor workers senders
+    cd $cur
+}
+
+wrkprof () {
+    resqs
+    cd ~/src/bitbucket.org/modernbusinesssolutions/queue-filler
+    NMSGS=10000 node index.js
+}
+
+
